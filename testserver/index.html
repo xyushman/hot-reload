@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hotreload Test Page</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            color: #333;
+        }
+
+        .container {
+            text-align: center;
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #0078D7;
+            margin-bottom: 20px;
+        }
+
+        .info {
+            font-size: 1.2rem;
+            margin-bottom: 10px;
+        }
+
+        .highlight {
+            font-weight: bold;
+            color: #d9534f;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Welcome to Hotreload!</h1>
+        <p class="info">If you see this page, the server is running successfully.</p>
+        <p class="info">Process ID: <span class="highlight">{{.PID}}</span></p>
+        <p class="info">Current Time: <span class="highlight">{{.Time}}</span></p>
+        <p class="info">Extra Message: <span>{{.ExtraMsg}}</span></p>
+
+        <p style="margin-top: 30px; font-size: 0.9em; color: #777;">
+            Try changing the HTML file or the Go server code and saving to see hotreload in action!
+        </p>
+
+        <p style="background-color: red; color: white; padding: 10px; border-radius: 5px;"> Here are the changes</p>
+    </div>
+</body>
+
+</html>
