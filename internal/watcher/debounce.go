@@ -2,54 +2,29 @@ package watcher
 
 import (
 	"sync"
-	"testing"
 	"time"
 )
 
-func TestDebounce(t *testing.T) {
-	in := make(chan struct{})
-	out := Debounce(in, 100*time.Millisecond)
+// Debounce takes a channel of struct{} (events) and emits a single struct{}
+// after the idle duration has passed without any new events.
+func Debounce(events <-chan struct{}, idle time.Duration) <-chan struct{} {
+	trigger := make(chan struct{})
 
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	triggerCount := 0
-
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
-		timeout := time.After(500 * time.Millisecond)
+		var timer *time.Timer
+		var mu sync.Mutex
 
-		for {
-			select {
-			case <-out:
-				mu.Lock()
-				triggerCount++
-				mu.Unlock()
-			case <-timeout:
-				return
+		for range events {
+			mu.Lock()
+			if timer != nil {
+				timer.Stop()
 			}
+			timer = time.AfterFunc(idle, func() {
+				trigger <- struct{}{}
+			})
+			mu.Unlock()
 		}
 	}()
 
-	// Burst of events (should result in one trigger)
-	in <- struct{}{}
-	in <- struct{}{}
-	in <- struct{}{}
-
-	time.Sleep(200 * time.Millisecond)
-
-	// Another event after debounce window
-	in <- struct{}{}
-
-	time.Sleep(200 * time.Millisecond)
-
-	close(in)
-	wg.Wait()
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	if triggerCount != 2 {
-		t.Fatalf("expected 2 triggers, got %d", triggerCount)
-	}
+	return trigger
 }

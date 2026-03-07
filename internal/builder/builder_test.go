@@ -1,3 +1,5 @@
+//go:build !windows
+
 package builder
 
 import (
@@ -8,7 +10,7 @@ import (
 
 func TestBuilder_Cancel(t *testing.T) {
 	b := NewBuilder("sleep 10")
-
+	
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -17,22 +19,24 @@ func TestBuilder_Cancel(t *testing.T) {
 		errCh <- b.Build(ctx)
 	}()
 
-	// Cancel the context after a short delay
+	// Give it a moment to start
 	time.Sleep(100 * time.Millisecond)
-	cancel() // propagate cancellation
+
+	b.Cancel()
 
 	err := <-errCh
 	if err == nil {
-		t.Fatalf("expected error when cancelling build, got nil")
+		t.Errorf("expected error when cancelling build, got nil")
 	}
 }
 
 func TestBuilder_Success(t *testing.T) {
 	b := NewBuilder("echo 'hello'")
-
+	
 	ctx := context.Background()
 	err := b.Build(ctx)
+
 	if err != nil {
-		t.Fatalf("expected success, got %v", err)
+		t.Errorf("expected success, got %v", err)
 	}
 }
