@@ -62,7 +62,7 @@ func (r *Runner) runLoop(ctx context.Context) {
 		slog.Info("Starting server process...")
 		var cmd *exec.Cmd
 		if runtime.GOOS == "windows" {
-			cmd = exec.Command("cmd", "/c", r.cmdStr)
+			cmd = exec.Command("powershell", "-Command", r.cmdStr)
 		} else {
 			cmd = exec.Command("sh", "-c", r.cmdStr)
 		}

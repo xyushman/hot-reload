@@ -33,8 +33,12 @@ func (b *Builder) Build(ctx context.Context) error {
 		return fmt.Errorf("build already in progress")
 	}
 
-	// Use sh -c to allow complex shell commands (e.g. go build -o bin main.go)
-	b.cmd = exec.CommandContext(ctx, "cmd", "/c", b.cmdStr)
+	// Execute via shell to handle complex commands and variable expansions
+	if runtime.GOOS == "windows" {
+		b.cmd = exec.CommandContext(ctx, "powershell", "-Command", b.cmdStr)
+	} else {
+		b.cmd = exec.CommandContext(ctx, "sh", "-c", b.cmdStr)
+	}
 	
 	// Create a process group so we can kill all subprocesses if cancelled
 	// Removed SysProcAttr for Windows compatibility
