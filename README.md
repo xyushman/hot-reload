@@ -12,8 +12,11 @@
 ## Installation
 
 ```bash
-go mod tidy
+# Unix/Linux
 go build -o hotreload ./cmd/hotreload
+
+# Windows
+go build -o hotreload.exe ./cmd/hotreload
 ```
 
 ## Usage
@@ -21,16 +24,19 @@ go build -o hotreload ./cmd/hotreload
 Provide the root path, the build command, and the execute command.
 
 ```bash
+# Unix/Linux
 ./hotreload --root ./testserver --build "go build -o ./testserver/server ./testserver/main.go" --exec "./testserver/server"
+
+# Windows
+hotreload.exe --root ./testserver --build "go build -o ./testserver/server.exe ./testserver/main.go" --exec "./testserver/server.exe"
 ```
 
 ## Architecture Map
 - **Watcher (`internal/watcher`)**: Wraps `fsnotify` into a recursive watcher. Handles dynamic directories. Returns a channel of relevant change events.
 - **Filter (`internal/watcher/filter.go`)**: Simple rule engine discarding noisy paths.
 - **Debounce (`internal/watcher/debounce.go`)**: Collapses multiple events within `300ms` into a single trigger.
-- **Builder (`internal/builder`)**: Handles executing the build command using `sh -c`. Uses context cancellation tied to process group killing to abort builds immediately. Streams outputs via `slog`.
-- **Runner (`internal/runner`)**: Controls the runtime server. Monitors for crashes (`wait()` < 2 seconds) and applies backoff. Exposes a `Stop()` method mapping to `SIGTERM->SIGKILL` graceful takedowns.
+- **Builder (`internal/builder`)**: Handles executing the build command using `sh -c` (or `cmd /c` on Windows). Uses context cancellation and process termination (e.g., `taskkill` on Windows) to abort builds immediately. Streams outputs via `slog`.
+- **Runner (`internal/runner`)**: Controls the runtime server. Monitors for crashes (`wait()` < 2 seconds) and applies backoff. Exposes a `Stop()` method mapping to graceful takedowns or process termination.
 
 ## Known Limitations
-- Built specifically for Unix systems implementing `syscall.SysProcAttr{Setpgid: true}`. Running this on Windows will encounter compilation/execution compatibility errors regarding process boundaries.
 - The ignored files logic is currently hard-coded. Expanding this tool to honor `.gitignore` naturally requires building a matcher package.

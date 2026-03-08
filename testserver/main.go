@@ -35,7 +35,7 @@ func main() {
 
 		t.Execute(w, data)
 	})
-	
+
 	log.Printf("Server starting on :%s (pid %d) - HOTRELOAD WORKS!", port, os.Getpid())
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
