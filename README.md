@@ -27,8 +27,8 @@ Provide the root path, the build command, and the execute command.
 # Unix/Linux
 ./hotreload --root ./testserver --build "go build -o ./testserver/server ./testserver/main.go" --exec "./testserver/server"
 
-# Windows
-hotreload.exe --root ./testserver --build "go build -o ./testserver/server.exe ./testserver/main.go" --exec "./testserver/server.exe"
+# Windows (run from the hotreload directory)
+.\hotreload.exe --root .\testserver --build "go build -o .\testserver\server.exe .\testserver\main.go" --exec ".\testserver\server.exe"
 ```
 
 ## Architecture Map
