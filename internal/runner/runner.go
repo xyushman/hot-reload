@@ -1,106 +1,157 @@
 package runner
 
 import (
+	"bufio"
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"os/exec"
 	"runtime"
 	"sync"
-	"testing"
 	"time"
 )
 
-// getSleepCommand returns a sleep command depending on OS
-func getSleepCommand() string {
-	if runtime.GOOS == "windows" {
-		return "timeout /T 10 >nul"
-	}
-	return "sleep 10"
+type Runner struct {
+	cmdStr string
+	mu     sync.Mutex
+	cancel context.CancelFunc
 }
 
-// getEchoCommand returns a simple command that exits immediately
-func getEchoCommand() string {
-	if runtime.GOOS == "windows" {
-		return "echo hello"
+func NewRunner(cmdStr string) *Runner {
+	return &Runner{
+		cmdStr: cmdStr,
 	}
-	return "echo 'hello'"
 }
 
-func TestRunner_Stop(t *testing.T) {
-	r := NewRunner(getSleepCommand())
-
-	r.Start()
-
-	// Wait until cancel is set (process started)
-	for i := 0; i < 10; i++ {
-		r.mu.Lock()
-		started := r.cancel != nil
-		r.mu.Unlock()
-		if started {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	r.Stop()
-
-	// Wait until cancel is cleared
-	for i := 0; i < 10; i++ {
-		r.mu.Lock()
-		c := r.cancel
-		r.mu.Unlock()
-		if c == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
+func (r *Runner) Start() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	if r.cancel != nil {
-		t.Errorf("Expected cancel to be nil after Stop, got %v", r.cancel)
+		slog.Warn("Server is already running")
+		return
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	r.cancel = cancel
+
+	go r.runLoop(ctx)
 }
 
-func TestRunner_RunLoopDoesNotCrashImmediately(t *testing.T) {
-	// Command that exits immediately
-	r := NewRunner(getEchoCommand())
-
-	r.Start()
-
-	// Wait a moment for runLoop to start and exit
-	time.Sleep(100 * time.Millisecond)
-
+func (r *Runner) Stop() {
 	r.mu.Lock()
-	c := r.cancel
+	cancel := r.cancel
+	r.cancel = nil
 	r.mu.Unlock()
 
-	if c == nil {
-		t.Errorf("Expected cancel to still be set after quick exit")
+	if cancel != nil {
+		cancel()
 	}
-
-	r.Stop()
 }
 
-func TestRunner_ConcurrentStartStop(t *testing.T) {
-	r := NewRunner(getSleepCommand())
-	var wg sync.WaitGroup
+func (r *Runner) runLoop(ctx context.Context) {
+	backoff := 500 * time.Millisecond
+	maxBackoff := 5 * time.Second
 
-	// Concurrently start and stop
-	for i := 0; i < 5; i++ {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		slog.Info("Starting server process...")
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.Command("cmd", "/c", r.cmdStr)
+		} else {
+			cmd = exec.Command("sh", "-c", r.cmdStr)
+		}
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			slog.Error("Failed to get stdout pipe", "error", err)
+			return
+		}
+
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			slog.Error("Failed to get stderr pipe", "error", err)
+			return
+		}
+
+		startTime := time.Now()
+
+		if err := cmd.Start(); err != nil {
+			slog.Error("Failed to start server", "error", err)
+			time.Sleep(backoff)
+			continue
+		}
+
+		var wg sync.WaitGroup
 		wg.Add(2)
+		go streamLogs("server", stdout, &wg, slog.LevelInfo)
+		go streamLogs("server", stderr, &wg, slog.LevelError)
+
+		errCh := make(chan error, 1)
 		go func() {
-			defer wg.Done()
-			r.Start()
+			wg.Wait()
+			errCh <- cmd.Wait()
 		}()
-		go func() {
-			defer wg.Done()
-			r.Stop()
-		}()
+
+		var exitErr error
+		select {
+		case exitErr = <-errCh:
+			// Process exited organically
+		case <-ctx.Done():
+			// We need to stop it!
+			killProcessGroup(cmd)
+			<-errCh // wait for actual exit
+			slog.Info("Server stopped manually")
+			return
+		}
+
+		uptime := time.Since(startTime)
+		
+		if exitErr != nil {
+			slog.Error("Server process crashed", "error", exitErr, "uptime", uptime)
+		} else {
+			slog.Warn("Server process exited cleanly unexpectedly", "uptime", uptime)
+		}
+
+		if uptime < 2*time.Second {
+			slog.Warn("Crash loop detected. Applying backoff", "delay", backoff)
+			time.Sleep(backoff)
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		} else {
+			backoff = 500 * time.Millisecond
+		}
 	}
+}
 
-	wg.Wait()
+func killProcessGroup(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	pid := cmd.Process.Pid
+	if runtime.GOOS == "windows" {
+		_ = exec.Command("taskkill", "/T", "/F", "/PID", fmt.Sprint(pid)).Run()
+	} else {
+		_ = cmd.Process.Kill() 
+	}
+}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.cancel != nil {
-		t.Errorf("Expected cancel to be nil after Stop, got %v", r.cancel)
+func streamLogs(prefix string, r io.Reader, wg *sync.WaitGroup, level slog.Level) {
+	defer wg.Done()
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if level == slog.LevelError {
+			slog.Error("output", "source", prefix, "line", line)
+		} else {
+			slog.Info("output", "source", prefix, "line", line)
+		}
 	}
 }
